@@ -5,6 +5,7 @@ import {
   watcherNetworkAccount,
   watcherNetworkID,
   privateKey,
+  privWeb3,
 } from "../src/constants/Web3Config";
 import BlockchainWatcher from "../src/model/BlockchainWatcher";
 import {
@@ -37,7 +38,7 @@ describe("burn 10 token and mint 10 token and save to database", async function(
 
   before(async () => {
     mainNet = await new MainNet();
-    privNet = await new PrivateNet();
+    privNet = await new PrivateNet(await privWeb3());
     mainAccount = await mainNet._getAccounts();
     privAccount = await privNet._getAccounts();
 

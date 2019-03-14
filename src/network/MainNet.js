@@ -4,6 +4,7 @@ import {
   watcherNetworkAccount,
   watcherContractAddress,
   watcherNetworkID,
+  privWeb3,
 } from "../constants/Web3Config";
 import HaraToken from "../contract/HaraToken";
 import { hartABI, burnLogABI, mintLogABI } from "../constants/AbiFiles";
@@ -88,7 +89,7 @@ export default class MainNet {
     );
     if (this.debug == "true") console.log(latestBlockMain);
 
-    const privNet = await new PrivateNet();
+    const privNet = await new PrivateNet(await privWeb3());
     const modelBlockChainWatcher = new BlockchainWatcher();
     const modelBlockchainWatcherBlock = new BlockchainWatcherBlock();
 
@@ -241,7 +242,7 @@ export default class MainNet {
 
   async _manualMint(burnID) {
     const modelBlockChainWatcher = new BlockchainWatcher();
-    const privNet = new PrivateNet();
+    const privNet = new PrivateNet(await privWeb3());
 
     let joinedBurnID = modelBlockChainWatcher._getJoinedBurnID(
       burnID,
@@ -273,11 +274,8 @@ export default class MainNet {
         let mintAccount = await privNet._getMintAccount();
         let nonce = await privNet._getNonce(mintAccount);
 
-        console.log("===========", await privateKey());
-
         try {
           let mintResult = await privNet._mint(_data, mintAccount, await privateKey(), watcherNetworkID, nonce);
-
           let mintedResult = await modelBlockChainWatcher._updateMintStatus(
             "manual_mint",
             joinedBurnID,
