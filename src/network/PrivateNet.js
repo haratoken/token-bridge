@@ -1,10 +1,10 @@
-import { privWeb3, defaultMintContractAddress, privateKey, customWeb3Provider, getMultipleMintNetwork } from "../constants/Web3Config";
+import {  defaultMintContractAddress, privateKey, getMultipleMintNetwork, privWeb3 } from "../constants/Web3Config";
 import HaraToken from "../contract/HaraToken";
 import { hartABI } from "../constants/AbiFiles";
 import { privateToAddress, bufferToHex } from 'ethereumjs-util';
 
 export default class PrivateNet {
-  constructor() {
+  constructor(privWeb3) {
     this.web3 = privWeb3;
     this.haraToken = new HaraToken(
       this.web3,
@@ -15,7 +15,7 @@ export default class PrivateNet {
   async _initToAnotherNetwork(networkID){
     try {
       let networkData = getMultipleMintNetwork(networkID);
-      this.web3 = customWeb3Provider(networkData.url);
+      this.web3 = await privWeb3(networkData.url);
       this.haraToken = new HaraToken(
         this.web3,
         hartABI
