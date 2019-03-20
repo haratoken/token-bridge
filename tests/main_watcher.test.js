@@ -3,7 +3,7 @@ import assert from "assert";
 import BlockchainWatcherBlock from "../src/model/BlockchainWatcherBlock";
 import { hartABI, burnLogABI } from "../src/constants/AbiFiles";
 import { hartContractBinary } from "../src/constants/Binary";
-import { watcherNetworkAccount, watcherNetworkID, privateKey } from "../src/constants/Web3Config";
+import { watcherNetworkAccount, watcherNetworkID, privateKey, privWeb3 } from "../src/constants/Web3Config";
 import PrivateNet from "../src/network/PrivateNet";
 import BlockchainWatcher from "../src/model/BlockchainWatcher";
 import { privateToAddress, bufferToHex } from "ethereumjs-util";
@@ -27,10 +27,11 @@ describe("when mainwatcher got new data and dont have new data", async function(
   let genBurnItem;
 
   let accountPrivNonce;
+  let instanceWeb3Private;
 
   before(async () => {
     mainNet = await new MainNet();
-    privNet = await new PrivateNet();
+    privNet = await new PrivateNet(await privWeb3());
     mainAccount = await mainNet._getAccounts();
   });
 

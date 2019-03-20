@@ -33,9 +33,6 @@ export default class HaraToken {
     // parse `from` network id from data
     let log_source = from;
 
-    console.log("dest network host", this.web3.eth.currentProvider.host);
-    console.log("dest contract", this.hart_address);
-
     // create raw data for sign transaction
     var raw_data = await this.hart.methods
       .mintToken(data.id, data.burner, data.value, data.hashDetails, log_source)
@@ -43,7 +40,6 @@ export default class HaraToken {
 
     // // transaction data to sign
     const txData = {
-      // nonce: await this.web3.eth.getTransactionCount(sender),
       nonce: nonceSender,
       to: this.hart_address,
       from: sender,
@@ -56,18 +52,21 @@ export default class HaraToken {
     try {
       txData.gas = await this.web3.eth.estimateGas(txData);
     } catch (error) {
+      txData.gas = await this.web3.utils.toHex(3600000);
       console.error("HaraToken@_mint failed get estimateGas", error.message);
     }
-
+    
     // // sign and send transaction
-    let rawTx = await this.web3.eth.accounts.signTransaction(txData, pk);
+    let rawTx = await this.web3.eth.signTransaction(txData);
     let mintTxHash = await new Promise((resolve, reject) => {
       this.web3.eth
-        .sendSignedTransaction(rawTx.rawTransaction)
+        .sendSignedTransaction(rawTx.raw)
         .once("transactionHash", mintTxHash => {
           resolve(mintTxHash);
         });
     });
+
+    console.log("HaraToken@_mint", JSON.stringify({ id: data.id, mint_status: "pending", mint_txhash: mintTxHash }));
 
     return { id: data.id, mint_status: "pending", mint_txhash: mintTxHash };
   }
@@ -101,7 +100,7 @@ export default class HaraToken {
     );
 
     return burnLogTopic;
-  };
+  }
 
   _getTopicPriv() {
     var burnLogTopic = this.web3.utils.sha3(
@@ -109,15 +108,15 @@ export default class HaraToken {
     );
 
     return burnLogTopic;
-  };
+  }
 
   async _getGasPrice() {
     return await this.web3.eth.getGasPrice();
-  };
+  }
 
   async _decodeData(abi, data, topics) {
     return await this.web3.eth.abi.decodeLog(abi, data, topics.slice(1));
-  };
+  }
 
   async _getNonce(sender) {
     return new Promise((resolve, reject) => {
@@ -131,16 +130,15 @@ export default class HaraToken {
           console.log("HaraToken@_getNonce", err.message);
         });
     });
-  };
+  }
 
   async _getBlockNumberTimestamp(blockNumber) {
     const block = await this.web3.eth.getBlock(blockNumber);
     let timeStamp = block.timestamp * 1000;
     return new Date(timeStamp).toISOString();
-  };
+  }
 
   async _totalSupply() {
     return await this.hart.methods.totalSupply().call();
   }
-
 }
