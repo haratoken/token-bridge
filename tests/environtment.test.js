@@ -7,7 +7,8 @@ import {
   watcherNetworkURL,
   defaultMintNetworkURL,
   privateKey,
-  defaultMintContractAddress
+  defaultMintContractAddress,
+  privWeb3
 } from "../src/constants/Web3Config";
 import { configDB, AWSendpoint } from "../src/constants/DbConfig";
 import { privateToAddress, bufferToHex } from "ethereumjs-util";
@@ -20,20 +21,13 @@ describe("environtment test", async function() {
   let privNet;
   before(async () => {
     mainNet = new MainNet();
-    privNet = new PrivateNet();
+    privNet = new PrivateNet(await privWeb3());
   });
 
   it("test Mainnet Provider", () => {
     assert.strictEqual(
       mainNet.web3.eth.currentProvider.host,
       watcherNetworkURL
-    );
-  });
-
-  it("test PrivateNet Provider", () => {
-    assert.strictEqual(
-      privNet.web3.eth.currentProvider.host,
-      defaultMintNetworkURL
     );
   });
 

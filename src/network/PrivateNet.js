@@ -1,25 +1,24 @@
-import { privWeb3, defaultMintContractAddress, privateKey, customWeb3Provider, getMultipleMintNetwork } from "../constants/Web3Config";
+import {
+  defaultMintContractAddress,
+  privateKey,
+  getMultipleMintNetwork,
+  privWeb3
+} from "../constants/Web3Config";
 import HaraToken from "../contract/HaraToken";
 import { hartABI } from "../constants/AbiFiles";
-import { privateToAddress, bufferToHex } from 'ethereumjs-util';
+import { privateToAddress, bufferToHex } from "ethereumjs-util";
 
 export default class PrivateNet {
-  constructor() {
+  constructor(privWeb3) {
     this.web3 = privWeb3;
-    this.haraToken = new HaraToken(
-      this.web3,
-      hartABI
-    );
+    this.haraToken = new HaraToken(this.web3, hartABI);
   }
 
-  async _initToAnotherNetwork(networkID){
+  async _initToAnotherNetwork(networkID) {
     try {
       let networkData = getMultipleMintNetwork(networkID);
-      this.web3 = customWeb3Provider(networkData.url);
-      this.haraToken = new HaraToken(
-        this.web3,
-        hartABI
-      );
+      this.web3 = await privWeb3(networkData.url);
+      this.haraToken = new HaraToken(this.web3, hartABI);
 
       await this.haraToken._initHart(hartABI, networkData.contractAddress);
 
@@ -32,12 +31,12 @@ export default class PrivateNet {
 
   _getContractAddress() {
     return defaultMintContractAddress;
-  };
+  }
 
   async _getAccounts() {
     let accountAddress = await this._getMintAccount();
     return [accountAddress];
-  };
+  }
 
   async _getMintAccount() {
     let pk = await privateKey();
@@ -45,31 +44,34 @@ export default class PrivateNet {
     watcherMintAddress = bufferToHex(watcherMintAddress);
 
     return watcherMintAddress;
-  };
+  }
 
   async _getNonce(account) {
     return await this.haraToken._getNonce(account);
-  };
+  }
 
   async _mint(data, account, primaryKey, from, nonceSender) {
-    let destMintNetwork = data.data;
-    let privContractAddress = this._getContractAddress();
+    try {
+      let destMintNetwork = data.data;
+      let privContractAddress = this._getContractAddress();
 
-    if(destMintNetwork != "") {
-      privContractAddress = await this._initToAnotherNetwork(destMintNetwork);
-      nonceSender = await this._getNonce(await this._getMintAccount());
-    } else {
-      await this.haraToken._initHart(hartABI, privContractAddress);
+      if (destMintNetwork != "") {
+        privContractAddress = await this._initToAnotherNetwork(destMintNetwork);
+        // nonceSender = await this._getNonce(await this._getMintAccount());
+      } else {
+        await this.haraToken._initHart(hartABI, privContractAddress);
+      }
+
+      return await this.haraToken._mint(
+        data,
+        account,
+        primaryKey,
+        from,
+        nonceSender,
+        privContractAddress
+      );
+    } catch (error) {
+      throw "Privatenet@_mint" + error.message;
     }
-
-    return await this.haraToken._mint(
-      data,
-      account,
-      primaryKey,
-      from,
-      nonceSender,
-      privContractAddress
-    );
-  };
-
+  }
 }
