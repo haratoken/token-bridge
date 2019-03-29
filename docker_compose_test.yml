@@ -36,3 +36,5 @@ services:
       - ganache_priv
     volumes:
       - ./coverage:/app/coverage
+      - .:/app
+      - node_modules:/app/node_modules

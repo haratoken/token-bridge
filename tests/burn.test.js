@@ -6,7 +6,7 @@ import {
 } from "../src/constants/Binary";
 import { hartABI } from "../src/constants/AbiFiles";
 import {
-  watcherNetworkAccount, privateKey,
+  watcherNetworkAccount, privateKey, privWeb3,
 } from "../src/constants/Web3Config";
 import PrivateNet from "../src/network/PrivateNet";
 import { privateToAddress, bufferToHex } from "ethereumjs-util";
@@ -24,7 +24,7 @@ describe("burn 10 token and mint 10 token and save to database", async function(
 
   before(async () => {
     mainNet = await new MainNet();
-    privNet = await new PrivateNet();
+    privNet = await new PrivateNet(await privWeb3());
     mainAccount = mainNet._getAccounts();
     privAccount = await privNet._getAccounts();
   });

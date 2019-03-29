@@ -4,6 +4,7 @@ import {
   watcherNetworkAccount,
   watcherContractAddress,
   watcherNetworkID,
+  privWeb3
 } from "../constants/Web3Config";
 import HaraToken from "../contract/HaraToken";
 import { hartABI, burnLogABI, mintLogABI } from "../constants/AbiFiles";
@@ -18,29 +19,31 @@ export default class MainNet {
     this.web3 = watcherNetwork;
     this.haraToken = new HaraToken(this.web3, hartABI, hartContractBinary);
     this.debug = process.env.DEBUG ? process.env.DEBUG : "false";
+    this.mintUserNonce = [];
+    this.lastBlockMinter = [];
   }
 
   _getContractAddress() {
     return watcherContractAddress;
-  };
+  }
 
   _getAccounts() {
     return [watcherNetworkAccount];
-  };
+  }
 
   async _getBlockNumberTimeStamp(blockNumber) {
     return await this.haraToken._getBlockNumberTimestamp(blockNumber);
-  };
+  }
 
   async _decodeData(abi = mintLogABI, data, topics, contractAddress = false) {
     let mainContractAddress = await this._getContractAddress();
-    if(contractAddress) {
+    if (contractAddress) {
       mainContractAddress = contractAddress;
     }
     await this.haraToken._initHart(hartABI, mainContractAddress);
 
     return await this.haraToken._decodeData(abi, data, topics);
-  };
+  }
 
   async _testBurn(tokenVal = 1, data = "") {
     try {
@@ -62,7 +65,7 @@ export default class MainNet {
       console.warn("MainNet@_testBurn", error);
       return false;
     }
-  };
+  }
 
   async _watch(startBlock = 1, singleBlock = false, isMint = false) {
     let contractAddress = await this._getContractAddress();
@@ -73,22 +76,88 @@ export default class MainNet {
     let logs = await this.haraToken._watch(
       startBlock,
       contractAddress,
-      [isMint ? this.haraToken._getTopicPriv() : this.haraToken._getTopicMain()],
+      [
+        isMint ? this.haraToken._getTopicPriv() : this.haraToken._getTopicMain()
+      ],
       singleBlock
     );
 
     return logs;
-  };
+  }
+
+  // becareful with this function
+  _setCountNonceVirtualize(nonce) {
+    console.log("??? minter nonce " + nonce);
+    this.mintUserNonce.push(nonce);
+  }
+
+  // becareful with this function
+  _getCountNonceVirtualize() {
+    let nonce = Math.max.apply(null, this.mintUserNonce);
+
+    while (this.mintUserNonce.includes(nonce)) {
+      nonce += 1;
+    }
+
+    this.mintUserNonce.push(nonce);
+    return nonce - 1;
+  }
+
+  async _runMintingOnPrivate(
+    joinedBurnID,
+    _data,
+    mintAccount,
+    watcherNetworkID,
+    nonce
+  ) {
+    const modelBlockChainWatcher = new BlockchainWatcher();
+    const privNet = await new PrivateNet(await privWeb3());
+
+    try {
+      console.log(
+        "!!! running minting on private " +
+          joinedBurnID +
+          " with nonce " +
+          nonce
+      );
+
+      let mintResult = await privNet._mint(
+        _data,
+        mintAccount,
+        await privateKey(),
+        watcherNetworkID,
+        nonce
+      );
+
+      let mintedResult = await modelBlockChainWatcher._updateMintStatus(
+        "pending",
+        joinedBurnID,
+        mintResult.mint_txhash
+      );
+
+      return { ...mintedResult, ...mintResult };
+    } catch (error) {
+      let mintedResult = await modelBlockChainWatcher._updateMintStatus(
+        "failed",
+        joinedBurnID
+      );
+      console.log("MainNet@_runMintingOnPrivate ", error.message);
+      return mintedResult;
+    }
+  }
 
   async _burnWatcher(runMint = true, startBlock = false) {
-    console.log("=== main watcher Running on "+ new Date().toISOString() +" ===");
+    console.log(
+      "=== main watcher Running on " + new Date().toISOString() + " ==="
+    );
 
     let latestBlockMain = await new BlockchainWatcherBlock()._getLatestBlock(
-      watcherNetworkID, "burn"
+      watcherNetworkID,
+      "burn"
     );
     if (this.debug == "true") console.log(latestBlockMain);
 
-    const privNet = await new PrivateNet();
+    const privNet = await new PrivateNet(await privWeb3());
     const modelBlockChainWatcher = new BlockchainWatcher();
     const modelBlockchainWatcherBlock = new BlockchainWatcherBlock();
 
@@ -98,6 +167,7 @@ export default class MainNet {
     if (startBlock) {
       latestBlockMain = startBlock;
     }
+
     if (this.debug == "true") console.log(startBlock);
 
     let _blockLogs = await this._watch(latestBlockMain);
@@ -110,88 +180,104 @@ export default class MainNet {
     let latestBlockNumber = latestBlockMain;
     if (this.debug == "true") console.log(latestBlockNumber);
 
-    for (const singleLog of _blockLogs) {
-      let partitionKey = await modelBlockChainWatcher._checkPartitionKey(
-        DEFAULT_PARTITION_LIMIT
-      );
+    let minterNonce = await privNet._getNonce(mintAccount);
+    this._setCountNonceVirtualize(minterNonce);
 
-      let _data = await this._decodeData(
-        burnLogABI,
-        singleLog.data,
-        singleLog.topics
-      );
-
-      if (this.debug == "true") console.log(_data);
-
-      if (typeof _data.burner !== "undefined" && "burner" in _data) {
-        const result = await modelBlockChainWatcher._generateBurnItem(
-          singleLog,
-          _data,
-          partitionKey,
-          watcherNetworkID
+    const mintingResult = _blockLogs.map(async (singleLog, key) => {
+      return new Promise(async (resolve, reject) => {
+        let partitionKey = await modelBlockChainWatcher._checkPartitionKey(
+          DEFAULT_PARTITION_LIMIT
         );
 
-        const joinedBurnID = result.id;
-        const checkDB = await modelBlockChainWatcher._getData(joinedBurnID);
-        if (this.debug == "true") console.log(checkDB);
-        burnIDList.push(joinedBurnID);
+        let _data = await this._decodeData(
+          burnLogABI,
+          singleLog.data,
+          singleLog.topics
+        );
 
-        // allan
-        if (checkDB === false) {
-          await modelBlockChainWatcher._insertData(result);
+        if (this.debug == "true") console.log(_data);
 
-          if (runMint) {
-            let nonce = await privNet._getNonce(mintAccount);
-            if (this.debug == "true") console.log(nonce);
+        if (typeof _data.burner !== "undefined" && "burner" in _data) {
+          const result = await modelBlockChainWatcher._generateBurnItem(
+            singleLog,
+            _data,
+            partitionKey,
+            watcherNetworkID
+          );
 
-            try {
-              let mintResult = await privNet._mint(_data, mintAccount, await privateKey(), watcherNetworkID, nonce);
+          const joinedBurnID = result.id;
+          const checkDB = await modelBlockChainWatcher._getData(joinedBurnID);
 
-              let mintedResult = await modelBlockChainWatcher._updateMintStatus(
-                "pending",
-                joinedBurnID,
-                mintResult.mint_txhash
-              );
-              mintedData.push(mintedResult);
-            } catch (error) {
-              let mintedResult = await modelBlockChainWatcher._updateMintStatus(
-                "failed",
-                joinedBurnID
-              );
-              mintedData.push(mintedResult);
-              console.log("error " + error.message);
+          burnIDList.push(joinedBurnID);
+
+          this.lastBlockMinter.push(singleLog.blockNumber);
+
+          if (checkDB === false) {
+            await modelBlockChainWatcher._insertData(result);
+            if (runMint) {
+              let nonce = this._getCountNonceVirtualize();
+
+              try {
+                let mintingResult = await this._runMintingOnPrivate(
+                  joinedBurnID,
+                  _data,
+                  mintAccount,
+                  watcherNetworkID,
+                  nonce
+                );
+
+                while (
+                  mintingResult.mint_status ==
+                  "replacement transaction underpriced"
+                ) {
+                  nonce = this._getCountNonceVirtualize();
+                  mintingResult = await this._runMintingOnPrivate(
+                    joinedBurnID,
+                    _data,
+                    mintAccount,
+                    watcherNetworkID,
+                    nonce
+                  );
+                }
+
+                resolve(mintingResult);
+              } catch (error) {
+                console.log("!!! ERRORRRR", error);
+                reject({ status: 0, error: error });
+              }
+            } else {
+              return { status: 0, data: result };
             }
           } else {
-            mintedData.push({ status: 0, data: result });
+            
+            resolve(true);
           }
         }
+      });
+    });
 
-        let logBlockNumber = singleLog.blockNumber;
-
-        latestBlockNumber = singleLog.blockNumber;
-        await modelBlockchainWatcherBlock._updateLatestBlock(
-          watcherNetworkID,
-          logBlockNumber,
-          "burn"
-        );
-      }
-    }
+    await Promise.all(mintingResult);
+    await modelBlockchainWatcherBlock._updateLatestBlock(
+      watcherNetworkID,
+      Math.max.apply(null, this.lastBlockMinter),
+      "burn"
+    );
 
     return {
-      minted_data: mintedData,
       last_block: latestBlockNumber,
       burn_id: burnIDList
     };
-  };
+  }
 
   async _mintWatcher() {
-    console.log("=== private watcher "+ new Date().toISOString() +" ===");
+    console.log("=== private watcher " + new Date().toISOString() + " ===");
 
     const modalBlockChainWatcherBlock = new BlockchainWatcherBlock();
     const modalBlockChainWatcher = new BlockchainWatcher();
 
     const latestBlockPriv = await modalBlockChainWatcherBlock._getLatestBlock(
-      watcherNetworkID, "mint"
+      watcherNetworkID,
+      "mint"
     );
 
     const blockLogs = await this._watch(latestBlockPriv, false, true);
@@ -207,29 +293,39 @@ export default class MainNet {
         typeof decodedData.status !== "undefined" &&
         decodedData.status === true
       ) {
-        let queryResult = await modalBlockChainWatcher._getMintDetail(singleLog.transactionHash);
+        let queryResult = await modalBlockChainWatcher._getMintDetail(
+          singleLog.transactionHash
+        );
 
-        if("Items" in queryResult && queryResult.Items.length > 0) {
+        if ("Items" in queryResult && queryResult.Items.length > 0) {
           queryResult = queryResult.Items[0];
-  
+
           let joinedBurnID = queryResult.id;
           let resultNetworkID = queryResult.to;
-          let watcherNetworkIDPadded = new BlockchainWatcher()._padNumber(watcherNetworkID, 4);
-  
-          if (queryResult.mint_status != "true" && resultNetworkID == watcherNetworkIDPadded) {
-            console.log("update minting status on joinedBurnID=" + joinedBurnID);
+          let watcherNetworkIDPadded = new BlockchainWatcher()._padNumber(
+            watcherNetworkID,
+            4
+          );
+
+          if (
+            queryResult.mint_status != "true" &&
+            resultNetworkID == watcherNetworkIDPadded
+          ) {
+            console.log(
+              "update minting status on joinedBurnID=" + joinedBurnID
+            );
             let updateResult = await modalBlockChainWatcher._updateMintStatus(
               "true",
               joinedBurnID
             );
-  
+
             let logBlockNumber = singleLog.blockNumber;
             await modalBlockChainWatcherBlock._updateLatestBlock(
               watcherNetworkID,
               logBlockNumber,
               "mint"
             );
-  
+
             result.push(updateResult);
           }
         }
@@ -237,11 +333,11 @@ export default class MainNet {
     }
 
     return result;
-  };
+  }
 
   async _manualMint(burnID) {
     const modelBlockChainWatcher = new BlockchainWatcher();
-    const privNet = new PrivateNet();
+    const privNet = new PrivateNet(await privWeb3());
 
     let joinedBurnID = modelBlockChainWatcher._getJoinedBurnID(
       burnID,
@@ -251,10 +347,15 @@ export default class MainNet {
     let data = await modelBlockChainWatcher._getData(joinedBurnID);
     let result = [];
 
-    if(!data) {
+    if (!data) {
       result.push({
         status: 0,
-        message: "data with burn_id=" + burnID + " and network_id=" + watcherNetworkID + " not found"
+        message:
+          "data with burn_id=" +
+          burnID +
+          " and network_id=" +
+          watcherNetworkID +
+          " not found"
       });
       return result;
     }
@@ -273,11 +374,14 @@ export default class MainNet {
         let mintAccount = await privNet._getMintAccount();
         let nonce = await privNet._getNonce(mintAccount);
 
-        console.log("===========", await privateKey());
-
         try {
-          let mintResult = await privNet._mint(_data, mintAccount, await privateKey(), watcherNetworkID, nonce);
-
+          let mintResult = await privNet._mint(
+            _data,
+            mintAccount,
+            await privateKey(),
+            watcherNetworkID,
+            nonce
+          );
           let mintedResult = await modelBlockChainWatcher._updateMintStatus(
             "manual_mint",
             joinedBurnID,
@@ -308,22 +412,20 @@ export default class MainNet {
     }
 
     return result;
-  };
+  }
 
   async _getTotalSupply() {
-
     console.log("check pk");
     await privateKey();
     try {
       let mainContractAddress = this._getContractAddress();
       await this.haraToken._initHart(hartABI, mainContractAddress);
-  
-      return await this.haraToken._totalSupply();    
-      
+
+      return await this.haraToken._totalSupply();
     } catch (error) {
       console.error("Mainnet@_getTotalSupply", error.message);
-      
-      return 0
+
+      return 0;
     }
   }
 }
