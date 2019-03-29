@@ -21,10 +21,11 @@ coverage
 test-results.xml
 temp.js
 
-package-lock.json
 dynamodb_data
 ganache_main
 ganache_priv
 *.DS_Store
 
 docker_compose_local.yml
+
+docker-compose.yml

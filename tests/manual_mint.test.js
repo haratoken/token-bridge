@@ -1,12 +1,9 @@
 import assert from "assert";
 import MainNet from "../src/network/MainNet";
 import PrivateNet from "../src/network/PrivateNet";
-import { watcherNetworkAccount, privateKey } from "../src/constants/Web3Config";
+import { watcherNetworkAccount, privateKey, privWeb3 } from "../src/constants/Web3Config";
 import { burnLogABI, hartABI } from "../src/constants/AbiFiles";
-import {
-  hartContractBinary,
-  contractUnitTest
-} from "../src/constants/Binary";
+import { hartContractBinary, contractUnitTest } from "../src/constants/Binary";
 import BlockchainWatcher from "../src/model/BlockchainWatcher";
 import { privateToAddress, bufferToHex } from "ethereumjs-util";
 
@@ -33,7 +30,7 @@ describe("manual minting", async function() {
     modelBlockChainWatcher = new BlockchainWatcher();
 
     mainNet = await new MainNet();
-    privNet = await new PrivateNet();
+    privNet = await new PrivateNet(await privWeb3());
     mainAccount = await mainNet._getAccounts();
     privAccount = await privNet._getAccounts();
   });
@@ -69,35 +66,32 @@ describe("manual minting", async function() {
   });
 
   it("deploy contract to PrivNet", async () => {
-     //deploy hara token priv
-     var haratokenContract = await new privNet.web3.eth.Contract(hartABI);
-     await haratokenContract
-       .deploy({
-         data: contractUnitTest
-       })
-       .send(
-         {
-           from: privAccount[0],
-           gas: 4700000
-         },
-         function(error, transactionHash) {}
-       )
-       .then(function(newContractInstance) {
-         privNetContractAddress = newContractInstance.options.address;
-         console.log("privNetContractAddress", privNetContractAddress);
-       });
- 
-     assert.strictEqual(typeof privNetContractAddress, "string");
+    //deploy hara token priv
+    var haratokenContract = await new privNet.web3.eth.Contract(hartABI);
+    await haratokenContract
+      .deploy({
+        data: contractUnitTest
+      })
+      .send(
+        {
+          from: privAccount[0],
+          gas: 4700000
+        },
+        function(error, transactionHash) {}
+      )
+      .then(function(newContractInstance) {
+        privNetContractAddress = newContractInstance.options.address;
+        console.log("privNetContractAddress", privNetContractAddress);
+      });
+
+    assert.strictEqual(typeof privNetContractAddress, "string");
   });
 
   it("test @_initHart and @_burn", async () => {
     await mainNet.haraToken._initHart(hartABI, watcherContractAddress);
     txLog = await mainNet.haraToken._burn(10, "", mainAccount[0]);
 
-    assert.strictEqual(
-      txLog.events.Burn.address,
-      watcherContractAddress
-    );
+    assert.strictEqual(txLog.events.Burn.address, watcherContractAddress);
 
     assert.strictEqual(txLog.events.Burn.event, "Burn");
     assert.strictEqual(txLog.events.Transfer.event, "Transfer");
@@ -115,9 +109,17 @@ describe("manual minting", async function() {
 
     singleLog = logs[logs.length - 1];
 
-    decodedData = await mainNet._decodeData(burnLogABI, singleLog.data, singleLog.topics, watcherContractAddress);
+    decodedData = await mainNet._decodeData(
+      burnLogABI,
+      singleLog.data,
+      singleLog.topics,
+      watcherContractAddress
+    );
 
-    joinedBurnID = await new BlockchainWatcher()._getJoinedBurnID(decodedData.id, "1");
+    joinedBurnID = await new BlockchainWatcher()._getJoinedBurnID(
+      decodedData.id,
+      "1"
+    );
 
     assert.strictEqual(joinedBurnID.length, 16);
     assert.strictEqual(decodedData.id, "0");
